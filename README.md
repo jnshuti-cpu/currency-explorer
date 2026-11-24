@@ -1,78 +1,161 @@
 # Currency Explorer
 
-A web app for comparing live exchange rates across 160+ currencies. Search by code or name, filter (major currencies, stronger/weaker than the base), sort by code, name or value, and convert any amount from any base currency.
+A web application for comparing live exchange rates across 160+ currencies. Pick a base currency, enter an amount, then search, filter and sort the results to see what it converts to everywhere else.
 
-- **Demo video:** `<ADD LINK>`
-- **Live app (load balancer):** `http://<LB01_IP_OR_DOMAIN>`
-- **Web01:** `http://<WEB01_IP>:3000` · **Web02:** `http://<WEB02_IP>:3000`
+| | |
+|---|---|
+| **Live app (load balancer)** | http://`<LB01_IP_OR_DOMAIN>` |
+| **Web01** | http://`<WEB01_IP>`:3000 |
+| **Web02** | http://`<WEB02_IP>`:3000 |
+| **Demo video (under 2 min)** | `<YOUTUBE_OR_VIMEO_LINK>` |
+| **Repository** | https://github.com/jnshuti-cpu/currency-explorer |
+
+**Credentials:** the app has no login. The API key needed to run it is provided in the submission comment (it is deliberately not stored in this repository).
+
+---
+
+## Table of contents
+1. [Purpose](#purpose)
+2. [Features](#features)
+3. [Tech stack](#tech-stack)
+4. [Project structure](#project-structure)
+5. [Run locally](#run-locally)
+6. [Configuration](#configuration)
+7. [API reference (this app)](#api-reference-this-app)
+8. [Deployment to Web01 and Web02](#deployment-to-web01-and-web02)
+9. [Load balancer setup (Lb01)](#load-balancer-setup-lb01)
+10. [Testing](#testing)
+11. [Updating without downtime](#updating-without-downtime)
+12. [Security notes](#security-notes)
+13. [Challenges and solutions](#challenges-and-solutions)
+14. [Credits](#credits)
+
+---
+
+## Purpose
+Anyone who travels, sends money abroad, shops internationally or runs a business with foreign suppliers needs quick, trustworthy exchange rates. Most converters answer one pair at a time. Currency Explorer shows one base currency against every other currency at once and lets you narrow the list instantly, for example "all currencies worth more than my base" or "just the major ones".
 
 ## Features
-- Live rates via ExchangeRate-API, proxied through the server so the **API key is never sent to the browser**
-- Search, filter, sort, amount conversion, base-currency switching
-- Server-side caching (default 60 min) with **stale-cache fallback** if the API is down
-- Error handling: invalid input (400), upstream failure (502/503) shown as a friendly banner
-- Security: input validation, CSP and other headers, XSS-safe rendering (`textContent`)
-- `X-Served-By` header and footer text show which server answered, so load balancing is visible
-- `/health` endpoint
+- **Live rates** for 160+ currencies from ExchangeRate-API
+- **Convert** any amount from any base currency
+- **Search** by currency code or name
+- **Filter**: all, major currencies, worth more than the base, worth less than the base
+- **Sort**: by code (A-Z), name (A-Z) or value (high-low, low-high)
+- **Server-side caching** (default 60 minutes) to cut latency and API usage
+- **Graceful failure**: if the rates API is unreachable, the last cached data is served and the page says so. If nothing is cached, a clear error banner is shown
+- **Load balancer visibility**: every response carries an `X-Served-By` header and the page footer shows which server answered
+- **Health endpoint** (`/health`) used by the load balancer
+- Light and dark mode, keyboard-accessible controls, responsive layout
 
-## API used and credit
-**[ExchangeRate-API](https://www.exchangerate-api.com/docs/overview)** – exchange rate data (v6). Thanks to the ExchangeRate-API team.
-Libraries: [Express](https://expressjs.com), [dotenv](https://github.com/motdotla/dotenv). Fonts: Fraunces and IBM Plex Sans (Google Fonts). Load balancing: [HAProxy](https://www.haproxy.org) (or Nginx).
+## Tech stack
+- Node.js 18+ and [Express](https://expressjs.com) (server and API proxy)
+- Vanilla HTML, CSS and JavaScript (front end, no build step)
+- [dotenv](https://github.com/motdotla/dotenv) for configuration
+- HAProxy for load balancing (an Nginx alternative is included)
+
+## Project structure
+```
+currency-explorer/
+├── public/
+│   ├── index.html     # page markup
+│   ├── app.js         # fetch, search, filter, sort, render
+│   └── style.css      # styling (light and dark)
+├── server.js          # Express server, API proxy, cache, health check
+├── package.json
+├── package-lock.json
+├── .env.example       # template for your local .env (no real secrets)
+├── .gitignore         # excludes .env and node_modules
+└── README.md
+```
 
 ## Run locally
-Requires Node.js 18+.
+**Requirements:** Node.js 18 or newer, Git, and an ExchangeRate-API key.
+
 ```bash
-git clone https://github.com/<you>/currency-explorer.git
+git clone https://github.com/jnshuti-cpu/currency-explorer.git
 cd currency-explorer
 npm install
-cp .env.example .env      # then edit .env and add your key
-npm start                 # http://localhost:3000
+cp .env.example .env     # then open .env and paste your API key
+npm start
 ```
-Get a free key at https://app.exchangerate-api.com/sign-up. Keys for graders are supplied in the submission comment, not in this repo.
+Open http://localhost:3000.
 
-## Deploy to Web01 and Web02
-Repeat on **both** servers (SSH in as your user):
+Get your own free key at https://app.exchangerate-api.com/sign-up, or use the key from the submission comment.
+
+## Configuration
+Settings live in a `.env` file, which is never committed.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `EXCHANGE_API_KEY` | yes | none | ExchangeRate-API key. The server exits with a message if it is missing |
+| `PORT` | no | `3000` | Port the server listens on |
+| `CACHE_TTL_MINUTES` | no | `60` | How long API responses are cached |
+
+## API reference (this app)
+The browser talks only to these endpoints. The ExchangeRate-API key is never exposed to it.
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/rates?base=USD` | Rates for a 3-letter base code. Returns `base`, `updated`, `rates`, `cached`, `stale`. Responds `400` for an invalid code |
+| `GET /api/codes` | List of supported currency codes and names |
+| `GET /health` | `{"status":"ok","host":"...","uptime":...}` for health checks |
+
+Upstream failures return `502` or `503` with a friendly JSON error.
+
+## Deployment to Web01 and Web02
+Repeat these steps on **both** servers.
+
+1. **Connect:** `ssh <user>@<SERVER_IP>`
+2. **Install Node.js 18+ and Git.** Check with `node -v`. On Ubuntu/Debian, if the packaged version is older than 18, install a newer one from [NodeSource](https://github.com/nodesource/distributions).
+   ```bash
+   sudo apt update && sudo apt install -y git nodejs npm
+   ```
+3. **Get the code**
+   ```bash
+   sudo mkdir -p /opt/currency-explorer && sudo chown $USER /opt/currency-explorer
+   git clone https://github.com/jnshuti-cpu/currency-explorer.git /opt/currency-explorer
+   cd /opt/currency-explorer
+   npm install --omit=dev
+   ```
+4. **Create the environment file** (secrets stay on the server)
+   ```bash
+   cp .env.example .env
+   nano .env          # set EXCHANGE_API_KEY
+   chmod 600 .env
+   ```
+5. **Run as a service** so it restarts on crash and on reboot. Create `/etc/systemd/system/currency-explorer.service`, replacing `User` with your login user:
+   ```ini
+   [Unit]
+   Description=Currency Explorer
+   After=network.target
+
+   [Service]
+   WorkingDirectory=/opt/currency-explorer
+   ExecStart=/usr/bin/node server.js
+   EnvironmentFile=/opt/currency-explorer/.env
+   Restart=always
+   User=ubuntu
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Check the Node path with `which node` and adjust `ExecStart` if needed. Then:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now currency-explorer
+   sudo systemctl status currency-explorer
+   ```
+6. **Verify:** `curl http://localhost:3000/health` should return `{"status":"ok",...}`. Also open `http://<SERVER_IP>:3000` from your own computer. If it does not load, open the port: `sudo ufw allow 3000`.
+
+## Load balancer setup (Lb01)
+HAProxy receives traffic on port 80 and distributes it between Web01 and Web02.
+
 ```bash
-# 1. Install Node 18+ and git
-sudo apt update && sudo apt install -y git nodejs npm   # ensure `node -v` >= 18 (use NodeSource if older)
-
-# 2. Get the code
-sudo mkdir -p /opt/currency-explorer && sudo chown $USER /opt/currency-explorer
-git clone https://github.com/<you>/currency-explorer.git /opt/currency-explorer
-cd /opt/currency-explorer && npm install --omit=dev
-
-# 3. Configure secrets (not in git)
-cp .env.example .env && nano .env && chmod 600 .env
-```
-Run as a service so it survives reboots. Create `/etc/systemd/system/currency-explorer.service`:
-```ini
-[Unit]
-Description=Currency Explorer
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/currency-explorer
-ExecStart=/usr/bin/node server.js
-Restart=always
-User=ubuntu
-EnvironmentFile=/opt/currency-explorer/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now currency-explorer
-curl http://localhost:3000/health
-```
-(If the servers only expose port 80, set `PORT=80` or put Nginx in front, proxying to `127.0.0.1:3000`.)
-
-## Configure the load balancer (Lb01, HAProxy)
-```bash
+ssh <user>@<LB01_IP>
 sudo apt update && sudo apt install -y haproxy
 sudo nano /etc/haproxy/haproxy.cfg
 ```
-Append:
+Append (replace the IPs):
 ```
 frontend http_in
     bind *:80
@@ -87,34 +170,84 @@ backend app_servers
     server web01 <WEB01_IP>:3000 check
     server web02 <WEB02_IP>:3000 check
 ```
+Validate and apply:
 ```bash
-sudo haproxy -c -f /etc/haproxy/haproxy.cfg   # validate
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg
 sudo systemctl restart haproxy
+sudo systemctl status haproxy
 ```
-`balance roundrobin` alternates requests; `check` + `option httpchk` removes a server from rotation if `/health` fails and re-adds it when it recovers.
+How it works:
+- `balance roundrobin` alternates requests between the servers.
+- `option httpchk GET /health` and `check` make HAProxy poll each server and stop sending traffic to one that fails the health check, then resume when it recovers.
 
-<details><summary>Nginx alternative</summary>
+<details>
+<summary>Nginx alternative</summary>
 
 ```nginx
-upstream app_servers { server <WEB01_IP>:3000; server <WEB02_IP>:3000; }
-server { listen 80; location / { proxy_pass http://app_servers; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; } }
+upstream app_servers {
+    server <WEB01_IP>:3000;
+    server <WEB02_IP>:3000;
+}
+server {
+    listen 80;
+    location / {
+        proxy_pass http://app_servers;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 </details>
 
-## Test the load balancer
-```bash
-for i in $(seq 1 6); do curl -s -D - -o /dev/null http://<LB01_IP>/health | grep -i x-served-by; done
-```
-Expect hostnames to alternate between web01 and web02. Failover test: `sudo systemctl stop currency-explorer` on web01, repeat the loop (only web02 should answer, no errors), then restart it and confirm both return. Record this in the demo video.
+## Testing
+**Local checks**
+- Rates load; search, filter, sort, amount and base currency all update the table
+- `curl "http://localhost:3000/api/rates?base=12"` returns a 400 error message
+- With a wrong key in `.env`, the page shows an error banner instead of crashing
 
-## Updating (zero downtime)
-Deploy to one server at a time: `git pull && npm install --omit=dev && sudo systemctl restart currency-explorer`. HAProxy health checks route traffic to the other server meanwhile.
+**Load balancing**
+```bash
+for i in $(seq 1 6); do
+  curl -s -D - -o /dev/null http://<LB01_IP>/health | grep -i x-served-by
+done
+```
+The hostname should alternate between Web01 and Web02. The footer of the page shows the same information when you refresh.
+
+**Failover**
+1. On Web01: `sudo systemctl stop currency-explorer`
+2. Repeat the loop above: only Web02 should answer, with no errors.
+3. On Web01: `sudo systemctl start currency-explorer`. Both should answer again.
+
+Test results: `<ADD YOUR OBSERVED OUTPUT OR SCREENSHOT HERE>`
+
+## Updating without downtime
+Update one server at a time so the other keeps serving traffic:
+```bash
+cd /opt/currency-explorer
+git pull
+npm install --omit=dev
+sudo systemctl restart currency-explorer
+```
+HAProxy's health checks route traffic to the healthy server during the restart. Then repeat on the second server.
+
+## Security notes
+- The API key is kept in `.env` (git-ignored) and used only on the server
+- Query input is validated (`base` must be three letters)
+- Responses set a Content-Security-Policy, `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`
+- The front end writes data to the page with `textContent`, which prevents injected HTML or scripts
+- `.env` files on the servers are set to `chmod 600`
 
 ## Challenges and solutions
-- **Hiding the API key:** ExchangeRate-API puts the key in the URL, so calling it from the browser would leak it. Solved with a server-side proxy.
-- **Rate limits / API downtime:** Added an in-memory cache with TTL and a stale fallback.
-- **Proving load balancing:** Added the `X-Served-By` header and footer text.
-- *(Add your own real challenges here, e.g. Node version on the servers, firewall ports.)*
+> Edit this section to reflect your own experience. The items below are real issues for this kind of project; keep the ones that happened to you.
 
-## Credentials for graders
-No login required. API key and any server access details are in the submission comment.
+- **Keeping the API key out of the browser and the repo.** ExchangeRate-API places the key in the request URL, so calling it from client-side JavaScript would expose it. I added a server-side proxy so the browser only calls `/api/...`. I also keep the key in `.env` and check `git status` and `git diff --cached` before each commit; I caught the key in `.env.example` before pushing and restored the placeholder.
+- **API quota and downtime.** An in-memory cache with a time limit reduces API calls, and serving stale data when the API fails keeps the app usable.
+- **Showing that load balancing works.** I added the `X-Served-By` header and a footer label so each response shows which server handled it.
+- `<Add any deployment issues, e.g. Node version on the servers, firewall ports, HAProxy config errors, and how you fixed them.>`
+
+## Credits
+- **Exchange rate data:** [ExchangeRate-API](https://www.exchangerate-api.com/docs/overview). Thank you to the ExchangeRate-API team for the free API.
+- **Libraries:** [Express](https://expressjs.com), [dotenv](https://github.com/motdotla/dotenv)
+- **Fonts:** Fraunces and IBM Plex Sans via [Google Fonts](https://fonts.google.com)
+- **Load balancing:** [HAProxy](https://www.haproxy.org)
+- **AI assistance:** starter code and README structure were drafted with Claude (Anthropic). Edit or remove this line so it accurately describes what you did and what your course policy requires.
