@@ -71,7 +71,7 @@ async function init() {
     body.codes.forEach(([code, name]) => (state.names[code] = name));
     const sel = $('base');
     Object.keys(state.names).sort().forEach((code) => {
-      const o = document.createElement('option');
+      const o = document.createElement('option'); 
       o.value = code; o.textContent = `${code} – ${state.names[code]}`;
       sel.appendChild(o);
     });
