@@ -7,7 +7,7 @@ A web application for comparing live exchange rates across 160+ currencies. Pick
 | **Live app (load balancer)** | http://`13.40.84.50` |
 | **Web01** | http://`13.135.74.29`:3000 |
 | **Web02** | http://`16.60.185.50`:3000 |
-| **Demo video (under 2 min)** | `<YOUTUBE_OR_VIMEO_LINK>` |
+| **Demo video (under 2 min)** | https://youtu.be/eb7W2OhES3M |
 | **Repository** | https://github.com/jnshuti-cpu/currency-explorer |
 
 **Credentials:** the app has no login. The API key needed to run it is provided in the submission comment (it is deliberately not stored in this repository).
@@ -105,7 +105,7 @@ Upstream failures return `502` or `503` with a friendly JSON error.
 ## Deployment to Web01 and Web02
 Repeat these steps on **both** servers.
 
-1. **Connect:** `ssh -i ~/.ssh/school ubuntu@<WEB_SERVER_IP>`
+1. **Connect:** `ssh -i ~/.ssh/school ubuntu@13.135.74.29` (Web01), then repeat with `16.60.185.50` (Web02)
 2. **Install Node.js 18+ and Git.** Check with `node -v`. On Ubuntu/Debian, if the packaged version is older than 18, install a newer one from [NodeSource](https://github.com/nodesource/distributions).
    ```bash
    sudo apt update && sudo apt install -y git nodejs npm
@@ -145,7 +145,7 @@ Repeat these steps on **both** servers.
    sudo systemctl enable --now currency-explorer
    sudo systemctl status currency-explorer
    ```
-6. **Verify:** `curl http://localhost:3000/health` should return `{"status":"ok",...}`. Also open `http://13.135.74.29:3000 (Web01) or http://16.60.185.50:3000 (Web02)` from your own computer. If it does not load, open the port: `sudo ufw allow 3000`.
+6. **Verify:** `curl http://localhost:3000/health` should return `{"status":"ok",...}`. Also open `http://13.135.74.29:3000 (Web01) or http://16.60.185.50:3000 (Web02)` from your own computer. If it does not load, open the port: `sudo ufw allow 3000/tcp (Web02 has no ufw, so this step is only needed where ufw is installed)`.
 
 ## Load balancer setup (Lb01)
 Lb01 (`13.40.84.50`) already ran HAProxy with a `www-http` frontend on port 80 and a `www-backend` backend pointing at port 80 on both web servers. I edited the existing config rather than adding a second frontend, which would conflict on port 80.
@@ -214,7 +214,35 @@ The hostname should alternate between Web01 and Web02. The footer of the page sh
 2. Repeat the loop above: only Web02 should answer, with no errors.
 3. On Web01: `sudo systemctl start currency-explorer`. Both should answer again.
 
-Test results: `<ADD YOUR OBSERVED OUTPUT OR SCREENSHOT HERE>`
+Test results (run from my laptop against the load balancer, `13.40.84.50`):
+
+Normal operation, six requests alternate between the two servers:
+```
+x-served-by: 7371-web-01
+x-served-by: 7371-web-02
+x-served-by: 7371-web-01
+x-served-by: 7371-web-02
+x-served-by: 7371-web-01
+x-served-by: 7371-web-02
+```
+Failover, after stopping the app on Web01 (`sudo systemctl stop currency-explorer`), all six requests were served by Web02 with no errors:
+```
+x-served-by: 7371-web-02
+x-served-by: 7371-web-02
+x-served-by: 7371-web-02
+x-served-by: 7371-web-02
+x-served-by: 7371-web-02
+x-served-by: 7371-web-02
+```
+Recovery, after restarting Web01 (`sudo systemctl start currency-explorer`), traffic alternated between both servers again:
+```
+x-served-by: 7371-web-02
+x-served-by: 7371-web-01
+x-served-by: 7371-web-02
+x-served-by: 7371-web-01
+x-served-by: 7371-web-02
+x-served-by: 7371-web-01
+```
 
 ## Updating without downtime
 Update one server at a time so the other keeps serving traffic:
@@ -234,12 +262,13 @@ HAProxy's health checks route traffic to the healthy server during the restart. 
 - `.env` files on the servers are set to `chmod 600`
 
 ## Challenges and solutions
-> Edit this section to reflect your own experience. The items below are real issues for this kind of project; keep the ones that happened to you.
-
 - **Keeping the API key out of the browser and the repo.** ExchangeRate-API places the key in the request URL, so calling it from client-side JavaScript would expose it. I added a server-side proxy so the browser only calls `/api/...`. I also keep the key in `.env` and check `git status` and `git diff --cached` before each commit; I caught the key in `.env.example` before pushing and restored the placeholder.
 - **API quota and downtime.** An in-memory cache with a time limit reduces API calls, and serving stale data when the API fails keeps the app usable.
 - **Showing that load balancing works.** I added the `X-Served-By` header and a footer label so each response shows which server handled it.
-- `<Add any deployment issues, e.g. Node version on the servers, firewall ports, HAProxy config errors, and how you fixed them.>`
+- **Missing runtime on the servers:** Node.js was not installed on Web01 or Web02. On Web02 the service failed with `status=203/EXEC` until I installed Node 20 from NodeSource and reran `npm install`.
+- **Firewall:** Web01's `ufw` only allowed ports 22, 80 and 443, so I opened 3000 with `sudo ufw allow 3000/tcp`.
+- **Existing load balancer config:** Lb01 already had a frontend on port 80 pointing at port 80 on both servers, so I edited its backend to use port 3000 and added a `/health` check instead of adding a second frontend.
+- **Git conflict on the README:** an edit on GitHub clashed with my local README, so I resolved the conflict during a rebase and kept my version.
 
 ## Credits
 - **Exchange rate data:** [ExchangeRate-API](https://www.exchangerate-api.com/docs/overview). Thank you to the ExchangeRate-API team for the free API.
